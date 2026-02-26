@@ -11,14 +11,15 @@ public class Hamster : MonoBehaviour
     [SerializeField] private Sprite hamsterTwoLivesHit;
     [SerializeField] private Sprite hamsterTwoLivesSleep;
     [SerializeField] private Sprite hamsterBomb;
+    [SerializeField] private Sprite hamsterBombCry;
 
     [Header("GameManager")]
     [SerializeField] private GameManager gameManager;
 
-    private Vector2 startPosition = new Vector2(0f, -0.7f);
-    private Vector2 endPosition = new Vector2(0f, 0.45f);
+    private Vector2 startPosition = new Vector2(-0.45f, 0.10f);
+    private Vector2 endPosition = new Vector2(-0.40f, 1f);
     private float showDuration = 0.5f;
-    private float duration = 1f;
+    private float duration = 0.5f;
 
     private SpriteRenderer spriteRenderer;
     private BoxCollider2D boxCollider2D;
@@ -54,6 +55,7 @@ public class Hamster : MonoBehaviour
         boxCollider2D.size = boxSize;
 
         yield return new WaitForSeconds(duration);
+
 
         elapsed = 0f;
         while (elapsed < showDuration)
@@ -120,7 +122,9 @@ public class Hamster : MonoBehaviour
                     }
                     break;
                 case HamsterType.Bomb:
-                    gameManager.GameOver(1);
+                    spriteRenderer.sprite = hamsterBombCry;
+                    gameManager.LoseLife();
+                    hittable = false;
                     break;
                 default:
                     break;
