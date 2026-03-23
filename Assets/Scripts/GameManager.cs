@@ -12,8 +12,6 @@ public class GameManager : MonoBehaviour
     [Header("UI objects")]
     [SerializeField] private GameObject gameUI;
     [SerializeField] private GameObject gameOverPanel;
-    [SerializeField] private GameObject outOfTimeText;
-    [SerializeField] private GameObject bombText;
     [SerializeField] private TMPro.TextMeshProUGUI timeText;
     [SerializeField] private TMPro.TextMeshProUGUI scoreText;
     [SerializeField] private TMPro.TextMeshProUGUI highScoreText;
@@ -54,8 +52,6 @@ public class GameManager : MonoBehaviour
         }
 
         gameOverPanel.SetActive(false);
-        outOfTimeText.SetActive(false);
-        bombText.SetActive(false);
         gameUI.SetActive(true);
         mainMenuPanel.SetActive(false);
 
@@ -90,14 +86,11 @@ public class GameManager : MonoBehaviour
         if (type == 0)
         {
             gameOverPanel.SetActive(true);
-            outOfTimeText.SetActive(true);
         }
         else
         {
             gameOverPanel.SetActive(true);
-            bombText.SetActive(true);
         }
-        // Clear high score text until server responds
         if (highScoreText != null)
             highScoreText.text = "";
 
@@ -114,7 +107,7 @@ public class GameManager : MonoBehaviour
             yield break;
         }
 
-        // --- Step 1: GET leaderboard and find this player's existing score ---
+        // GET leaderboard
         int serverHighScore = 0;
         bool playerFound = false;
 
@@ -154,13 +147,12 @@ public class GameManager : MonoBehaviour
             }
         }
 
-        // --- Step 2: Only POST if new score beats the server score ---
+        // post if current score beats the highscore
         if (finalScore > serverHighScore)
         {
             Debug.Log($"New score {finalScore} beats server score {serverHighScore}. Saving...");
             yield return StartCoroutine(SaveScoreToServer(finalScore, token));
 
-            // Show the new score as the high score
             if (highScoreText != null)
                 highScoreText.text = finalScore.ToString();
         }
@@ -168,7 +160,6 @@ public class GameManager : MonoBehaviour
         {
             Debug.Log($"Score {finalScore} does not beat server high score {serverHighScore}. Not saving.");
 
-            // Show the existing server high score
             if (highScoreText != null)
                 highScoreText.text = serverHighScore.ToString();
         }
@@ -315,7 +306,6 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    // --- JSON models matching the API response ---
 
     [System.Serializable]
     private class LeaderboardResponse
