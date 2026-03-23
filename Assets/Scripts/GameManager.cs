@@ -1,14 +1,15 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Networking;
 using UnityEngine.SceneManagement;
-using UnityEngine.SocialPlatforms.Impl;
+using System.Text;
 
 public class GameManager : MonoBehaviour
 {
     [SerializeField] private List<Hamster> hamsters;
 
     [Header("UI objects")]
-    //[SerializeField] private GameObject playButton;
     [SerializeField] private GameObject gameUI;
     [SerializeField] private GameObject gameOverPanel;
     [SerializeField] private GameObject outOfTimeText;
@@ -17,12 +18,14 @@ public class GameManager : MonoBehaviour
     [SerializeField] private TMPro.TextMeshProUGUI scoreText;
     [SerializeField] private TMPro.TextMeshProUGUI highScoreText;
 
-    //[SerializeField] private GameObject mainMenuButton;
     [SerializeField] private GameObject mainMenuPanel;
     [SerializeField] private GameObject leaderboardPanel;
     [SerializeField] private GameObject howToPlayPanel;
 
     [SerializeField] private TMPro.TextMeshProUGUI playerLivesText;
+
+    private const string SaveScoreURL = "https://app-unleash-mobile-be-dev.azurewebsites.net/api/v1/users/play";
+    private const string LeaderboardURL = "https://app-unleash-mobile-be-dev.azurewebsites.net/api/v1/play/whack-a-flea/";
 
     private float startingTime = 30f;
 
@@ -34,25 +37,22 @@ public class GameManager : MonoBehaviour
 
     private void Start()
     {
-        
         StartGame();
     }
+
     public void StartGame()
     {
-        //PlayerPrefs.DeleteKey("HasSeenHowToPlay");
-
         if (PlayerPrefs.GetInt("HasSeenHowToPlay", 0) == 1)
         {
             howToPlayPanel.SetActive(false);
             playing = true;
-            Debug.Log("false");
         }
         else
         {
             howToPlayPanel.SetActive(true);
             playing = false;
-            Debug.Log("true");
         }
+
         gameOverPanel.SetActive(false);
         outOfTimeText.SetActive(false);
         bombText.SetActive(false);
@@ -62,22 +62,31 @@ public class GameManager : MonoBehaviour
         playerLives = 3;
         UpdateLivesUI();
         Time.timeScale = 1f;
+
         for (int i = 0; i < hamsters.Count; i++)
         {
             hamsters[i].Hide();
             hamsters[i].SetIndex(i);
         }
+
         currentHamsters.Clear();
         timeRemaining = startingTime;
         score = 0;
+        highScore = 0;
         scoreText.text = "0";
-        highScore = PlayerPrefs.GetInt("HighScore", 0);
-        highScoreText.text = highScore.ToString();
+        highScoreText.text = "0";
         playing = true;
     }
 
     public void GameOver(int type)
     {
+        playing = false;
+
+        foreach (Hamster mole in hamsters)
+        {
+            mole.StopGame();
+        }
+
         if (type == 0)
         {
             gameOverPanel.SetActive(true);
@@ -88,11 +97,111 @@ public class GameManager : MonoBehaviour
             gameOverPanel.SetActive(true);
             bombText.SetActive(true);
         }
-        foreach (Hamster mole in hamsters)
+        // Clear high score text until server responds
+        if (highScoreText != null)
+            highScoreText.text = "";
+
+        StartCoroutine(CheckAndSaveScore(score));
+    }
+
+    private IEnumerator CheckAndSaveScore(int finalScore)
+    {
+        string token = SessionManager.AuthToken;
+
+        if (string.IsNullOrEmpty(token))
         {
-            mole.StopGame();
+            Debug.LogWarning("CheckAndSaveScore: No auth token in session. Skipping.");
+            yield break;
         }
-        playing = false;
+
+        // --- Step 1: GET leaderboard and find this player's existing score ---
+        int serverHighScore = 0;
+        bool playerFound = false;
+
+        using (UnityWebRequest getRequest = UnityWebRequest.Get(LeaderboardURL))
+        {
+            getRequest.SetRequestHeader("Authorization", "Bearer " + token);
+            yield return getRequest.SendWebRequest();
+
+            if (getRequest.result == UnityWebRequest.Result.Success)
+            {
+                string json = getRequest.downloadHandler.text;
+                Debug.Log($"Leaderboard response: {json}");
+
+                LeaderboardResponse leaderboard = JsonUtility.FromJson<LeaderboardResponse>(json);
+
+                if (leaderboard != null && leaderboard.d != null && leaderboard.d.list != null)
+                {
+                    foreach (LeaderboardEntry entry in leaderboard.d.list)
+                    {
+                        if (entry.email == SessionManager.PlayerEmail)
+                        {
+                            serverHighScore = entry.score;
+                            playerFound = true;
+                            Debug.Log($"Found player on leaderboard. Server high score: {serverHighScore}");
+                            break;
+                        }
+                    }
+
+                    if (!playerFound)
+                        Debug.Log("Player not on leaderboard yet. Will save score.");
+                }
+            }
+            else
+            {
+                Debug.LogWarning($"Failed to fetch leaderboard: {getRequest.responseCode} - {getRequest.error}. Skipping save.");
+                yield break;
+            }
+        }
+
+        // --- Step 2: Only POST if new score beats the server score ---
+        if (finalScore > serverHighScore)
+        {
+            Debug.Log($"New score {finalScore} beats server score {serverHighScore}. Saving...");
+            yield return StartCoroutine(SaveScoreToServer(finalScore, token));
+
+            // Show the new score as the high score
+            if (highScoreText != null)
+                highScoreText.text = finalScore.ToString();
+        }
+        else
+        {
+            Debug.Log($"Score {finalScore} does not beat server high score {serverHighScore}. Not saving.");
+
+            // Show the existing server high score
+            if (highScoreText != null)
+                highScoreText.text = serverHighScore.ToString();
+        }
+    }
+
+    private IEnumerator SaveScoreToServer(int finalScore, string token)
+    {
+        string jsonBody = JsonUtility.ToJson(new SaveScoreRequest
+        {
+            name = "whack-a-flea",
+            score = finalScore
+        });
+
+        byte[] bodyRaw = Encoding.UTF8.GetBytes(jsonBody);
+
+        using (UnityWebRequest request = new UnityWebRequest(SaveScoreURL, "POST"))
+        {
+            request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "application/json");
+            request.SetRequestHeader("Authorization", "Bearer " + token);
+
+            yield return request.SendWebRequest();
+
+            if (request.result == UnityWebRequest.Result.Success)
+            {
+                Debug.Log($"Score saved! Score: {finalScore} | Response: {request.downloadHandler.text}");
+            }
+            else
+            {
+                Debug.LogError($"Failed to save score: {request.responseCode} - {request.error}");
+            }
+        }
     }
 
     void Update()
@@ -105,7 +214,9 @@ public class GameManager : MonoBehaviour
                 timeRemaining = 0;
                 GameOver(0);
             }
+
             timeText.text = $"{(int)timeRemaining / 60}:{(int)timeRemaining % 60:D2}";
+
             if (currentHamsters.Count <= (score / 1000))
             {
                 int index = Random.Range(0, hamsters.Count);
@@ -129,9 +240,6 @@ public class GameManager : MonoBehaviour
         {
             highScore = score;
             highScoreText.text = highScore.ToString();
-
-            PlayerPrefs.SetInt("HighScore", highScore);
-            PlayerPrefs.Save();
         }
     }
 
@@ -166,6 +274,7 @@ public class GameManager : MonoBehaviour
     {
         mainMenuPanel.SetActive(false);
         leaderboardPanel.SetActive(true);
+        leaderboardPanel.GetComponent<LeaderboardManager>().LoadLeaderboard();
     }
 
     public void backToMenu()
@@ -204,5 +313,36 @@ public class GameManager : MonoBehaviour
         {
             GameOver(1);
         }
+    }
+
+    // --- JSON models matching the API response ---
+
+    [System.Serializable]
+    private class LeaderboardResponse
+    {
+        public int c;
+        public LeaderboardData d;
+    }
+
+    [System.Serializable]
+    private class LeaderboardData
+    {
+        public List<LeaderboardEntry> list;
+    }
+
+    [System.Serializable]
+    private class LeaderboardEntry
+    {
+        public string id;
+        public string username;
+        public string email;
+        public int score;
+    }
+
+    [System.Serializable]
+    private class SaveScoreRequest
+    {
+        public string name;
+        public int score;
     }
 }
