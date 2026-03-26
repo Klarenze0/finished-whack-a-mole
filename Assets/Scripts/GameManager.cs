@@ -40,13 +40,19 @@ public class GameManager : MonoBehaviour
 
     public void StartGame()
     {
+        // pag gusto ipakita yung howtoplay manually sa umpisa
+        //PlayerPrefs.SetInt("HasSeenHowToPlay", 0);
+        //PlayerPrefs.Save();
+
         if (PlayerPrefs.GetInt("HasSeenHowToPlay", 0) == 1)
         {
             howToPlayPanel.SetActive(false);
             playing = true;
+            Time.timeScale = 1f;
         }
         else
         {
+            Time.timeScale = 0f;
             howToPlayPanel.SetActive(true);
             playing = false;
         }
@@ -57,7 +63,7 @@ public class GameManager : MonoBehaviour
 
         playerLives = 3;
         UpdateLivesUI();
-        Time.timeScale = 1f;
+        //Time.timeScale = 1f;
 
         for (int i = 0; i < hamsters.Count; i++)
         {
@@ -279,6 +285,7 @@ public class GameManager : MonoBehaviour
     {
         playing = true;
         howToPlayPanel.SetActive(false);
+        Time.timeScale = 1f;
 
         PlayerPrefs.SetInt("HasSeenHowToPlay", 1);
         PlayerPrefs.Save();
